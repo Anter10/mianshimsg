@@ -1,0 +1,1571 @@
+LUA 实例代码
+————————————————————————————————————————————————————————————————————————————————————————————
+VersionUpdate = class("VersionUpdate",function() return cc.Layer:create() end)
+cc.FileUtils:getInstance():addSearchPath(cc.FileUtils:getInstance():getWritablePath())
+local targetPlatform = cc.Application:getInstance():getTargetPlatform()
+
+local partchar = "."
+
+local curversion = "12.3.6"
+
+-- 游戏是否更新过
+VersionUpdate.into = false
+
+-- 对包含有特殊字符的字符串进行分割 返回分割后的数组
+-- @str:         被分割的数组
+-- @delim:  特殊字符
+cc.exports.getStringArray = function(s, delim, needtonuber)
+    if type(delim) ~= "string" or string.len(delim) <= 0 or not s or s == "" then
+        return {}
+    end
+    local start = 1
+    local t = {}
+    while true do
+    local pos = string.find(s,delim, start, true) -- plain find
+        if not pos then
+          break
+        end
+        local tnumber = string.sub (s, start, pos - 1) 
+        if needtonuber then
+           tnumber = tonumber(tnumber)
+        end
+        table.insert (t,tnumber )
+        start = pos + string.len (delim)
+    end
+    local tnumber = string.sub (s, start)
+    if needtonuber then
+       tnumber = tonumber(tnumber)
+    end
+    table.insert (t,tnumber )
+    return t
+end
+
+-- 比较两个版本的大小
+-- 比较两个相同格式 相同分隔符号的字符串的大小 
+-- @注意:   是第一个是否比第二个大
+-- @str1:  第一个字符串
+-- @str2:  第二个字符串
+-- @party: 分隔符
+-- 返回1 等于 返回true 大于
+local function CTString( str1, str2, party, needtonumber )
+     local sa1 = getStringArray(str1, party, needtonumber)
+     local sa2 = getStringArray(str2, party, needtonumber)
+      -- print("两个数字 = ",json.encode(sa1),json.encode(sa2))
+     if #sa2 == 0 or #sa2 == 0 then
+        return 0
+     end
+
+     if sa1[1] == sa2[1] and sa1[2] == sa2[2] and sa1[3] == sa2[3] then
+        return 0
+     elseif sa1[1] >= sa2[1] then
+        print(sa1[1] > sa2[1], sa1[1] == sa2[1] and sa1[2] > sa2[2], sa1[1] == sa2[1] and sa1[2] == sa2[2] and sa1[3] > sa2[3] )
+        if sa1[1] > sa2[1] then
+           return true
+        elseif sa1[1] == sa2[1] and sa1[2] > sa2[2] then 
+           return true
+        elseif sa1[1] == sa2[1] and sa1[2] == sa2[2] and sa1[3] > sa2[3] then
+           return true
+        end
+        return false
+     else
+        return false
+     end
+end
+
+
+
+
+
+-- 更新指定的版本资源
+function VersionUpdate:ctor(callback)
+    local vvv1 = "1.0.1"
+    local vvv2 = "1.0.2"
+    VersionUpdate.into = true
+    local stringstring = CTString(vvv2,vvv1,".",true)
+    -- print("vvv1 和 vvv1比较大小 = ",stringstring)
+    self.defuser       = cc.UserDefault:getInstance()
+    local curusersversion = self.defuser:getStringForKey("versionofcode")
+    self.issamenotupdate = false
+    if curusersversion == "" or not curusersversion then
+       self.issamenotupdate = true
+       curusersversion = curversion
+    end 
+    
+    self.isiosplatform = false
+    if (cc.PLATFORM_OS_IPHONE == targetplatform) or (cc.PLATFORM_OS_IPAD == targetplatform) then
+        self.isiosplatform = true
+    end
+
+    
+   
+    -- 读取已经更新的资源目录
+    self.readdata = require("common.FileManager").readFile("updatehasupdates.json")
+
+    print("保存的更新信息  =" , json.encode(self.readdata ))
+
+    print("本地存储的版本信息  = ", curusersversion, type(curusersversion))
+    self:addChild(require("common.gameui.touchlayer").create(), -1)
+    self.layer = cc.Layer:create()
+    self:addChild(self.layer,30)
+    if not self.hasupdates then
+        self.hasupdates = {}
+    end
+    self.curversion     = nil
+    self.versions       = {}
+    self.hasupdatefiles = false
+    self:enableNodeEvents()
+    self.callback = callback
+   
+
+    -- 开始Http请求资源目录
+    local function getVersionData(data)
+    	 
+    end
+
+
+    self.allversions = {}
+    -- 是否需要更新
+    self.needupdate  = true
+    local function  dealdata(data) 
+         -- print("热更新的资源目录数据 = ",json.encode(data))
+         
+          -- 上一个版本是否更新完成
+          local upperversionfinish = true
+          -- self.defuser:setStringForKey("versionofcode","1.0.0")
+          -- 处理版本的数据信息
+          if data and type(data) == "table" and #data ~= 0 then
+             local uperversion = nil
+           
+             if self.readdata then
+                for version,v in pairs(self.readdata) do
+                    uperversion = version
+                end   
+             end
+             
+             -- print("上一次更新的版本 = ", uperversion)
+             
+             for i,version in ipairs(data) do
+               local tdata     = {}
+             	 tdata.version   = version.version
+             	 tdata.zipres    = {}
+
+             	 local updateres = getStringArray(version.resource,"#")
+               -- 判断当前的设备时IOS还是Android
+               if self.isiosplatform then
+                  updateres = getStringArray(version.iosresource,"#")
+               end
+               
+               print("当前信义斗地主的更新包信息 = ",json.encode(updateres))
+
+               -- 判断是否和上一次更新的版相同 相同的话 判断更新到了第几个zip文件
+               local upperindex = 0
+               if uperversion and uperversion ~= "" then
+                  upperindex = #self.readdata[uperversion]
+               end
+
+
+               if updateres and type(updateres) == "table" and #updateres > 0  then 
+                  for kvi,kv in ipairs(updateres) do
+                       local canadd = true
+                       if upperindex and kvi <= upperindex and uperversion == tdata.version and self.issamenotupdate then
+                          canadd = false
+                          upperversionfinish = false
+                       end
+                       -- print(kvi,"canaddcanadd = ",uperversion, canadd , upperindex)
+                       if canadd then
+                     	 	   local trdata = getStringArray(kv,"__")
+                     	 	   local rdata  = {}
+                           rdata.path   = trdata[1]
+                           rdata.zip    = trdata[2]
+                           rdata.url    = version.url
+                           rdata.compel    = version.compel
+                           rdata.version   = version.version 
+                           tdata.zipres[#tdata.zipres + 1] = rdata
+                       end
+                 	 end
+               end 
+               if tdata.zipres and type(tdata.zipres) == "table" and #tdata.zipres > 0 then
+             	    self.allversions[#self.allversions + 1] = tdata
+               end
+             end
+          end
+
+
+          self.hotupdate = cc.AssetsManager:new():getVersion()
+          
+          print("检查后的更新信息  = ",json.encode(self.allversions))
+          if #self.allversions  > 0 then
+	           -- 得到服务器端的最大版本
+	           self.maxversion    = self.allversions[#self.allversions].version
+	           self.minversion    = self.allversions[1].version
+            
+             local usersversion = self.defuser:getStringForKey("versionofcode")
+             
+             -- print("版本比较 = ", curusersversion, self.maxversion)
+             local curversion   = CTString(curusersversion, self.maxversion, partchar, true)
+             local userversion  = false
+             
+           
+
+
+
+             -- 最开始的更新节点
+             self.startversion  = curusersversion
+             if usersversion and #getStringArray(usersversion,partchar) == 3 then
+                local uam       = CTString(usersversion, self.maxversion, partchar, true)
+                local uac       = CTString(self.maxversion, curusersversion,partchar, true)
+                print(usersversion, self.maxversion,"uam uac = ", uam, uac)
+                if uam and uac then
+                   self.needupdate  = false 
+                end
+                self.startversion = usersversion
+             end
+             -- print(self.maxversion,self.startversion, "usersversion1 - ",usersversion)
+             local hostversion = false
+             if self.hotupdate and self.hotupdate ~= "" then
+                hostversion       = CTString(hostversion, self.maxversion, partchar, true)
+                local uah         = CTString(self.hotupdate, self.startversion, partchar, true)
+                if uah then
+                   self.startversion = self.hotupdate
+                end
+             end
+            
+             -- 最后判断从哪个版本开始更新
+             local okversion = CTString(self.startversion, self.minversion, partchar, true)
+             print(self.minversion,self.startversion, "usersversion2 - ",self.hotupdate,okversion)
+             if not okversion then
+                self.startversion = self.minversion
+             end
+              -- print(self.startversion, "usersversion3 - ",self.minversion)
+
+
+             -- 得到当前存储的更新版本信息和服务器端端版本信息比较
+             
+
+
+             -- 最终需要更新的文件
+             self.finalupdateres = {}
+             -- 如果服务器端的版本大于本地的版本相同 不需要更新
+             -- 判断当前是否需要更新
+             if not self.needupdate and upperversionfinish then
+                -- print("当前不需要更新")
+                if self.callback then
+                   self:callback()
+                end
+                self:removeFromParent(true)
+                return 
+             else
+                self.needupdate = true
+                -- 找出最终需要更新的文件
+                for i, res in ipairs(self.allversions) do
+                    local tstr = CTString( res.version,self.startversion, partchar, true)
+                    -- print(tstr, "找出最后处理的版本 = ",self.startversion, res.version)
+                	if tstr then
+                       self.finalupdateres[#self.finalupdateres + 1] = res
+                	end
+                end
+
+                -- 却掉每个版本中存在的相同的资源
+                local tfinalres = clone(self.finalupdateres)
+                local removemsg = {}
+                -- print(self.startversion,"处理的数据  = ",json.encode(tfinalres))
+                for tfresi,tfres in ipairs(tfinalres) do
+                    for ti,tv in ipairs(tfres.zipres) do
+                    	for frei,fres in ipairs(self.finalupdateres) do
+                	        for fi,fv in ipairs(fres.zipres) do
+                              local str = CTString(tfres.version,fres.version, partchar, true)
+                              if tv.path == fv.path and tv.zip == fv.zip and str == true then
+                                 local tdata = {}
+                                 tdata.version = fres.version
+                                 tdata.key     = fi
+                                 local hasit   = false
+                                 for tti,ttv in ipairs(removemsg) do
+                                     if ttv.version == tdata.version and ttv.key == tdata.key then
+                                        hasit   = true
+                                        break
+                                   	 end
+                                 end
+                                 if not hasit then
+                                    removemsg[#removemsg + 1] = tdata 
+                                 end
+                	        	  end
+                	         end
+                        end
+                    end
+                end
+
+                -- 删除多余的重复资源
+                local groupremovemsg = {}
+                for i,keys in ipairs(removemsg) do
+                	  if not groupremovemsg[keys.version] then
+                       groupremovemsg[keys.version] = {}
+                	  end
+                  	groupremovemsg[keys.version][#groupremovemsg[keys.version] + 1] = keys.key
+                end
+
+                for version,keys in pairs(groupremovemsg) do
+                	for ti,tf in ipairs(self.finalupdateres) do
+                		  if tf.version == version then
+                         for i,key in ipairs(keys) do
+                             for zkey,v in ipairs(tf.zipres) do
+                           	     if zkey == key then
+                                    tf.zipres[key] = 0
+                           	     end
+                           	 end
+                         end
+                		  end
+                	 end
+                end
+                -- 在此处理所有版本信息
+                for i,resv in ipairs(self.finalupdateres) do
+                    local tcount = 0
+                    for i,v in ipairs(resv.zipres) do
+                        if not tonumber(v) then
+                           tcount = tcount + 1
+                        end
+                    end
+                    -- 需要更新的资源总个数
+                    resv.count = tcount
+                    -- 版本包含的资源总个数
+                    resv.num   = #resv.zipres
+                end
+             end
+          end
+          -- 确定开始资源更新的下标 和 开始更新的资源下标
+          -- 版本下标
+          self.updateversionindex     = 0
+          -- 版本下的资源下标
+          self.curversionupdateindex  = 0
+          -- 已经更新的资源
+          self.hasupdates             = {}
+          -- 当前正在更新的版本
+          self.curversion             = self.startversion
+
+          self:initUpdateParam()
+
+          if self.finalupdateres and #self.finalupdateres > 0 then
+             local compel = false
+             for k,verres in pairs(self.finalupdateres) do
+                 for dataindex,data in ipairs(verres.zipres) do
+                    if type(data) == "table" and data.compel and tonumber(data.compel) == 1 then
+                       compel = data
+                       break
+                    end
+                 end
+             end
+             print("当前的强更资源 = ",json.encode(compel))
+             if compel then
+                self:addCSB()
+                if self.isiosplatform then
+                    self.defuser:setStringForKey("versionofcode","")
+                    self.apkurl = compel.path
+                    self.csblayer:getChildByName("updateb"):setVisible(true)
+                    self.csblayer:getChildByName("ldd"):setVisible(false)
+                    self.csblayer:getChildByName("ulabel"):setVisible(false)
+                    self.csblayer:getChildByName("updateb"):setPosition(display.cx, display.cy)
+                    local label = cc.LabelTTF:create("有新的游戏版本更新\n  请下载新的版本", "Arial", 20)
+                    label:setColor(cc.c4f(255,108, 69, 38))
+                    label:setFontSize(48)
+                    self.csblayer:getChildByName("updateb"):addChild(label, 320)
+                    local tposx, tposy = self.csblayer:getChildByName("updateb"):getChildByName("pos"):getPosition()
+                    label:setPosition(tposx, tposy)
+
+                    qq.tools.button(self.csblayer:getChildByName("updateb"), "ok", 
+                    function()
+                       cc.Application:getInstance():openURL(self.apkurl)
+                       -- 结束当前的游戏进程
+                       cc.Director:getInstance():endToLua()
+                    end
+                    , true)
+                else
+                    print("当前的版本数据 = = ",json.encode(compel))
+                    self.defuser:setStringForKey("versionofcode","")
+                    -- self.ulabel:setText("有新的游戏版本更新  请下载新的版本 ")
+                    local label = cc.LabelTTF:create("有新的游戏版本更新\n 请下载新的版本", "Arial", 20)
+                    label:setColor(cc.c4f(255,108, 69, 38))
+                    label:setFontSize(48)
+                    self.csblayer:getChildByName("updateb"):addChild(label, 320)
+                    local tposx, tposy = self.csblayer:getChildByName("updateb"):getChildByName("pos"):getPosition()
+                    label:setPosition(tposx, tposy)
+
+                    self.apkurl = compel.url.."/"..compel.path..compel.zip
+                    self.csblayer:getChildByName("updateb"):setVisible(true)
+                    qq.tools.button(self.csblayer:getChildByName("updateb"), "ok", 
+                    function()
+                       cc.Application:getInstance():openURL(self.apkurl)
+                       -- 结束当前的游戏进程
+                       cc.Director:getInstance():endToLua()
+                    end
+                    , true) 
+                end
+             else
+                self:addCSB()
+                self.csblayer:getChildByName("updateb"):setVisible(false)
+                self:startUpdate()
+             end
+          else
+             if self.callback then
+                self:callback()
+             end
+             self:removeFromParent(true)
+          end
+          print(json.encode(self.curversionupdateres),self.updateversionindex,self.curversionupdateindex,"最终需要更新的数据资源数据  =    ",json.encode(self.finalupdateres))
+    end
+
+
+    local support = false
+   
+    if (cc.PLATFORM_OS_IPHONE == targetplatform) or (cc.PLATFORM_OS_IPAD == targetplatform) or (cc.PLATFORM_OS_ANDROID == targetplatform) or (cc.PLATFORM_OS_MAC == targetplatform) then
+        support = true
+    end
+
+    if support then
+       qq.tools.HttpSendpost("http://admin.sharkpoker.cn/xinyi/ZjApi/app_hot_update?version="..tostring(curusersversion).."&game=".."doudizhu".."&test=1" ,data, dealdata)
+    else
+       if self.callback then
+          self:callback()
+       end
+       self:removeFromParent(true)
+       self = nil
+    end
+end
+
+
+
+-- 得到跟新的资源数据
+function VersionUpdate:getUpdateRes( verindex, curindex )
+    if self.finalupdateres and type(self.finalupdateres) == "table" and #self.finalupdateres > 0 then
+        self.curversionupdateres = self.finalupdateres[verindex].zipres[curindex]
+        return self.curversionupdateres
+    end
+end
+
+-- 初始化更新参数
+function VersionUpdate:initUpdateParam()
+           if self.finalupdateres and #self.finalupdateres > 0 then
+               for i,res in ipairs(self.finalupdateres) do
+                  if res.count > 0 and i > self.updateversionindex then
+                     self.updateversionindex     = i
+                     for i,v in ipairs(res.zipres) do
+                         if not tonumber(v) then
+                            self.curversionupdateindex = i
+                            self.curversion = res.version
+                            break
+                         end
+                     end
+                     break
+                  end
+              end
+          end
+end
+
+-- 更新资源的具体逻辑
+function VersionUpdate:startUpdate()
+	  local function getRgx(data) 
+    	 
+    end
+    
+    local barlength  = 1001
+    local startpx    = 125
+
+    -- 错误的四中信息
+    local function errorCall(code)
+    	-- 网络
+        if code == cc.ASSETSMANAGER_NO_NEW_VERSION then
+           print("没有新版本")
+        -- 不能解压
+        elseif code == cc.ASSETSMANAGER_UNCOMPRESS then
+        -- 开始新的更新
+        else 
+           -- 删除旧版本 开始新的更新
+           getRgx(self:getUpdateRes(self.updateversionindex,self.curversionupdateindex)):deleteVersion()
+           -- 检查有没有更新
+           getRgx(self:getUpdateRes(self.updateversionindex,self.curversionupdateindex)):checkUpdate()
+        end
+    end
+
+    -- 更新过程
+    local  function updateProgress(percent)
+        if not self.percent then
+           self.percent = 0
+        end
+
+        if percent < self.percent then
+           percent = self.percent
+        end
+        local tpox = startpx + (percent / 100) * barlength
+        print("当前的更新进度 ＝ ",json.encode(self.updateres))
+        if percent == 100 then
+           if not self.hasupdates[self.curversion] then
+              self.hasupdates[self.curversion] = {}
+           end
+           self.hasupdates[self.curversion][#self.hasupdates[self.curversion] + 1] = self.updateres
+           table.sort(self.hasupdates)
+        else
+            self.ulabel:setText("更新进度: "..tostring(percent).."%")
+            self.layer:setPositionX(-10)
+        end
+        self.percent = percent
+        if percent > 2  then
+           self.upbar:setPercent(percent)
+        end
+    end
+     
+    local function successCall()
+        self.percent = 0
+        self.hotupdate:deleteVersion()
+        
+        self.upbar:setPercent(self.percent)
+        -- 每次成功都保存已经更新了的资源列表
+        
+        require("common.FileManager").writePath("updatehasupdates.json",json.encode(self.hasupdates))
+        print(self.updateversionindex,self.curversionupdateindex, self.curversion, " 资源  ",json.encode(self.hasupdates), "更新成功")
+        -- 如果当前版本更新完成 判断是否还有下一个版本需要更新
+        if self.curversionupdateindex == self.finalupdateres[self.updateversionindex].num then
+           -- 如果还有继续更新 没有的话 更新完成  进行其他操作
+           if self.updateversionindex < #self.finalupdateres then
+              self:initUpdateParam()
+              self.defuser:setStringForKey("versionofcode",self.finalupdateres[self.updateversionindex].version)
+              getRgx(self:getUpdateRes(self.updateversionindex,self.curversionupdateindex)):checkUpdate()
+           else
+              if self.callback then
+                 self:callback()
+              end
+              self.defuser:setStringForKey("versionofcode",self.finalupdateres[self.updateversionindex].version)
+
+
+              self:removeFromParent(true)
+
+           end
+        else
+           for i,res in ipairs(self.finalupdateres[self.updateversionindex].zipres) do
+               if not tonumber(res) and i > self.curversionupdateindex then
+                  self.curversionupdateindex = i
+                  break
+               end
+           end
+           self.defuser:setStringForKey("versionofcode",self.finalupdateres[self.updateversionindex].version)
+           getRgx(self:getUpdateRes(self.updateversionindex,self.curversionupdateindex)):checkUpdate()
+        end 
+        
+    end
+    
+    -- 开始热更新
+    getRgx = function(data)
+            -- 获得更新的包的路径 和包的名称
+            local savePath = cc.FileUtils:getInstance():getWritablePath()..data.path
+            if not cc.FileUtils:getInstance():isFileExist(savePath) then
+               cc.FileUtils:getInstance():createDirectory(savePath)
+            end
+            self.updateres = data
+            cc.FileUtils:getInstance():addSearchPath(savePath)
+
+
+            local respath = data.url.."/"..data.path..data.zip
+            print("热更新的目录 = ", savePath)
+            local verpath = "http://admin.sharkpoker.cn/xinyi/ZjApi/gethtml"
+            print("更新信息 = ",respath, verpath)
+            self.hotupdate = cc.AssetsManager:new(respath,verpath,savePath)
+            self.hotupdate:retain()
+            -- print("存储路径 = ",self.hotupdate:getStoragePath())
+            self.hotupdate:setDelegate(errorCall, cc.ASSETSMANAGER_PROTOCOL_ERROR)
+            self.hotupdate:setDelegate(updateProgress, cc.ASSETSMANAGER_PROTOCOL_PROGRESS)
+            self.hotupdate:setDelegate(successCall, cc.ASSETSMANAGER_PROTOCOL_SUCCESS )
+            self.hotupdate:setConnectionTimeout(15)
+            return self.hotupdate
+    end
+    
+    -- 热更新开始
+    getRgx(self:getUpdateRes(self.updateversionindex,self.curversionupdateindex)):checkUpdate()
+end
+
+
+function VersionUpdate:getUpdateFiles(resfiles)
+    
+end
+
+
+function VersionUpdate:addCSB()
+    self.csblayer = cc.CSLoader:createNode("UpdateLayer.csb")
+    ccui.Helper:doLayout(self.csblayer)
+    self:addChild(self.csblayer)
+
+    self.ulabel = self.csblayer:getChildByName("ulabel")
+    self.upbar  = self.csblayer:getChildByName("ldd"):getChildByName("lb")
+    self.upbar:setPercent(0)
+end
+
+
+VersionUpdate.show = function(callback)
+    local dllayer = VersionUpdate.new(callback)
+    return dllayer
+end
+
+return VersionUpdate
+
+-- 战斗中的BUFF
+-- 添加buff规则: 每次更新当前战斗单位收到的buff数据如果没有 则把此次更新中没有 以前已经添加的buff移除
+
+local BattleBuff = class("BattleBuff",RequireModel.CommonNode)
+
+-- 单个特效模版
+local Effect      = RequireModel.Specialeffects
+-- 组合特效模版
+local GroupEffect = RequireModel.GroupEffect
+
+-- buff的ID
+BattleBuff.indexid     = 0
+-- buff的构造函数
+-- @buff: 当前buff的数据
+-- @roleid: buff施加到某个战斗单位的ID 
+function BattleBuff:ctor(buff, roleid)
+	   self.super.ctor(self)
+     ---- --------------------print("当前buff的数据 = ",roleid)
+     -- 静态数据
+     -- 当前buff的承受的战斗单位
+     local role      = getBattleManager():getBattleRoleUnitById(roleid)
+     -- buff对应的静态数据
+	   self.data       = buff
+     self.roleid     = roleid
+     -- buff的ID
+     self.id         = self.data:getId()
+     -- buff 的生效条件
+     self.condtion   = self.data:getCondition()
+     -- buff的作用目标
+     self.target     = self.data:getTarget()
+     -- 持续时间   这里的持续时间是以战斗单位本身的回合算
+     self.keeptime   = tonumber(self.data:getKeepTime())
+     -- 跳数      这里的持续时间是以战斗单位本身的回合算 
+     self.jumpnumber = tonumber(self.data:getJumpTime())
+     -- 最大层数  
+     self.maxlayer   = tonumber( self.data:getMaxLayer())
+     -- 是否可以清除
+     self.canclear   = tonumber(self.data:getCanClear())
+     -- 是否可以重置
+     self.canrepeate = self.data:getCanRepeate()
+     -- 是否可以替换
+     self.canreplace = tonumber(self.data:getCanReplace())
+     -- 是否可以叠加
+     self.canadd     = self.data:getCanAdd()
+     -- buff图标
+     self.icon       = self.data:getIcon()
+     -- 持续特效
+     local buffcount = role:getBuffCount(self.id)
+     
+     local allnumber = self.data:getEfectNumber()
+
+     if buffcount >=  allnumber then
+        buffcount = buffcount
+     end
+     if buffcount == 0 then
+        buffcount = 1
+     else
+        buffcount = buffcount + 1
+     end
+     BattleBuff.indexid   = BattleBuff.indexid + 1
+     self.indexid         = BattleBuff.indexid
+     self.keepeffect = self.data:getPlayKeepEffect()
+     --------------print('当前添加的buff数量 = ',buffcount,json.encode(self.keepeffect))
+     -- 效果类型
+     self.effecttype       = self.data:getEffectType()
+     -- 效果值
+     self.effectvalue      = self.data:getEffectValue()
+     -- 每跳间隔
+     self.jumpeverytime    = self.data:getEveryJumpTime()
+     -- 首跳是否生效
+     self.firsteffect      = tonumber(self.data:getFirstEffect())
+     -- 是否有激发特效
+     self.hasinspireeffect = self.data:getHasInspireEffect()
+     -- 触发其他的buff
+     self.otherbuff        = self.data:getOtherBuff()
+     -- 触发其他的技能
+     self.otherskill       = tonumber(self.data:getOtherSkill())
+     -- buff类型
+     self.bufftype         = tonumber(self.data:getOtherSkill())
+     -- 得到触发的命中特效
+     self.streid           = self.data:getSte()
+     -- buff的特效
+     self.bee = self.data:getBee()
+     -- 动态数据
+     --[[
+         持续回合数 与 跳数为互斥关系
+     --]]
+     -- buff持续回合数 默认为无效
+     self.currentroundtime = NE
+     -- buff的原始回合数 
+     self.originalround    = NE
+     -- 是否每个回合都计算
+     self.everyroundeffect = NE
+     -- 首跳结束了吗
+     self.firsteffecthaspass = false
+
+     -- 当前buff是否已经开始生效
+     self.starteffect        = false
+     
+     -- 是否是添加到人物Spine的身上
+     self.isAddOnSpine = false
+     -- 模版初始化
+     if not Effect then
+        Effect = RequireModel.Specialeffects
+     end
+     if not GroupEffect then
+        GroupEffect = RequireModel.GroupEffect
+     end
+     -- 初始跳数数据
+     self:initBuffJumpNumber()
+     -- 是否有触发的buff
+     -- self:produceOtherBuff()
+     -- 触发其他的技能
+     ----print("世世代代的点点滴滴1",self.otherskill)
+     self:produceOtherSkill()
+      ----print("世世代代的点点滴滴2",self.otherskill)
+     ---- --------------------print("世世代代的点点滴滴")
+     self.initeveryjump = 0
+     if self.keeptime ~= -1 then
+        self.currentroundtime = self.keeptime
+     else
+        self.currentroundtime = self.jumpnumber
+     end
+     self.originalroundtime   = self.currentroundtime
+     --print( self.id, self.keeptime, self.jumpnumber," 当前buff的回合数 = ", self.currentroundtime)
+     self.buffeffectvalue = 0
+     self.buffeffecttype  = nil
+end
+
+-- 设置buff特效的buff数据
+function BattleBuff:setBuffEffectBuffData( bd )
+      self.buffdata = bd
+end
+
+-- 得到buff特效的buff数据
+function BattleBuff:getBuffData()
+   return self.buffdata
+end
+
+
+-- 添加指定的属性变化
+function BattleBuff:addBuffEffectValue(effecttype,ev)
+    if effecttype and ev and ev ~= 0 then
+       self.buffeffectvalue   = self.buffeffectvalue + ev
+       if not self.buffeffecttype then
+          self.buffeffecttype = effecttype
+       end
+    end
+end
+
+function BattleBuff:getBuffEffectKeyAndValue()
+   return self.buffeffecttype, self.buffeffectvalue
+end
+
+-- 得到buff产生的属性变化值
+function BattleBuff:getBuffEffectValue()
+    return self.buffeffectvalue
+end
+
+
+-- 设置buff特效是否需要重置 
+function BattleBuff:setNeedRepeate(nr)
+    self.needrepeate = nr
+end
+
+-- 添加buff的持续回合数
+function BattleBuff:addOriginalKeepTime()
+   self.currentroundtime = self.currentroundtime + self.originalroundtime
+end
+
+-- 得到是否需要重置
+function BattleBuff:getNeedRepeate()
+    return self.needrepeate
+end
+
+
+-- 设置产生此buff的特效
+function BattleBuff:setProduceThisBuffId( pbid )
+    self.producebid = pbid
+end
+
+-- 得到产生此buff的的生产ID
+function BattleBuff:getProduceThisBuffId()
+   return self.producebid
+end
+
+-- 得到buff的初始跳数
+function BattleBuff:getIniteveryjump()
+    return self.initeveryjump
+end
+
+-- 将初始跳数自动加1
+function BattleBuff:addOneInitEveryJumpTime()
+   self.initeveryjump = self.initeveryjump + 1
+end
+
+-- 设置初始跳数
+function BattleBuff:setIniteveryjump(iej)
+   self.initeveryjump = iej
+end
+
+
+function BattleBuff:getIndexId()
+    return self.indexid
+end
+-- 得到最大层级
+function BattleBuff:getMaxLayer()
+    return self.maxlayer
+end
+
+-- 获得buff的ID
+function BattleBuff:getId()
+    return self.id
+end
+
+-- 能否清除
+function BattleBuff:canClear()
+    return self.canclear   == YES
+end
+
+-- 能否叠加
+function BattleBuff:canAdd()
+    return self.canadd     == YES
+end
+
+-- 能否重置
+function BattleBuff:canRepeate()
+    return self.canrepeate == YES
+end
+
+-- 能否替换
+function BattleBuff:canRepeate()
+    return self.canreplace == YES
+end
+
+-- 是否永久生效
+function BattleBuff:isForever()
+    return self.keeptime   == NO
+end
+
+-- 生效的的时候处罚的其他BUFF
+function BattleBuff:produceOtherBuff()
+    if self.otherbuff ~= 0 then
+       -- 得到buff数据
+       local role         = getBattleManager():getBattleRoleUnitById(self.roleid)
+       ----print(role:getRoleData():getRoleUniqueId(),"生效的时候触发其他buff = ",self.otherbuff)
+       local allbuffs   = getStringArray(self.otherbuff, "_")
+       for k,buffid in ipairs(allbuffs) do
+           local dealdatas    = {}
+           local buff    = getSystemData():getBuffDataByID(buffid)
+           -- 得到buff的作用目标
+           local allbebuffroleid = getBattleManager():dealBuffTarget(buff, role:getRoleData())
+           ----print("触发buff作用的所有对象ID = ", json.encode(allbebuffroleid))
+           for i,roleid in ipairs(allbebuffroleid) do
+               if getBattleManager():getBattleRoleUnitById(roleid) then
+                  -- 属性buff的显示效果和属性
+                  getBattleManager():getBattleRoleUnitById(roleid):dealBuffData({buff})
+                  -- 处理buff影响到的其他逻辑 
+                  getBattleManager():dealBuffEffectById(clone(buff), getBattleManager():getBattleRoleUnitById(roleid):getRoleData())
+               end
+           end
+       end
+      
+    end
+end
+
+-- 处理触发出来的其他技能
+function BattleBuff:produceOtherSkill()
+    if self.otherskill  ~= -1 then
+       local skill = getSystemData():getSkillDataById(self.otherskill)
+       getBattleManager():letRoleOrOtherReleaseSkill(self.roleid, skill)
+    end
+end
+
+-- 重置buff
+-- 主要就是重置buff的回合数
+function BattleBuff:repeateBuff()
+    if self.keeptime ~= -1 then
+       self.currentroundtime = self.keeptime
+    else
+       self.currentroundtime = self.jumpnumber
+    end
+end
+
+-- 得到当前buff是否开始生效
+function BattleBuff:getStartEffect()
+    return self.starteffect
+end
+
+-- 获得buff是否生效
+function BattleBuff:setStartEffect(start)
+    self.starteffect = start
+end
+ 
+
+-- 创建buff的时候判断首跳是否生效
+function BattleBuff:isFisrstEffect()
+    if self.firsteffect == YES then
+       self:addBuffEffect()
+    end
+end
+
+
+
+
+-- 得到效果类型
+function BattleBuff:getEffectType()
+     return tonumber(self.data:getEffectType())
+end
+
+-- 设置当前是否为buff
+function BattleBuff:setLeaderBuff(buff)
+    self.isleaderbuff = buff
+end
+
+-- 得到是否是队长技能
+function BattleBuff:getLeaderBuff()
+   return self.isleaderbuff
+end
+
+
+-- 得到效果值
+-- 返回值第一个为 1 增加 或者 2相乘 或者无效
+function BattleBuff:getEffectValue()
+     if tonumber(self.effectvalue) and tonumber(self.effectvalue) == 0 then
+        return nil, 0
+     else
+        local effect = getStringArray(self.effectvalue, "_")
+        return effect[1], effect[2]
+     end
+end
+
+-- 得到buff图标
+function BattleBuff:getIcon()
+     return self.icon
+end
+
+-- 能否清除
+function BattleBuff:clearBuff()
+    return self.canclear
+end
+ 
+
+-- 减少当前buff的持续特效
+-- @one: 减少的数量
+function BattleBuff:cutBuffRoundNumber(one)
+    ----print("减少buff的回合数啊啊啊",self:isForever())
+    -- 如果是永久生效 则不需要移除
+    if self:isForever() then
+       return 
+    end
+    if not one then
+       one = 1
+    end
+    -- 此回合是否结算buff
+    local getbuff = false
+    -- 判断跳数是否为持续时间计算的buff
+    if self.keeptime ~= -1 then
+       getbuff = true
+    end
+    if self.keeptime == -1 and self.jumpnumber ~= -1 then
+       if self.jumpeverytime == 0 then
+          getbuff = true
+       elseif self.jumpeverytime ~= 0 and self.initeveryjump < self.jumpeverytime then
+          self:addOneInitEveryJumpTime()
+       end
+    end 
+ 
+    --print(getbuff,"当前减少回合数的buffID  = ",self.id,"当前剩余的回合数  ", self.currentroundtime )
+    if getbuff then
+        self.currentroundtime = self.currentroundtime - one
+        --print("当前buff 还剩的回合数  = ",self.currentroundtime, self.roleid)
+        if self.currentroundtime <= 0 then
+           self:setCanRemove( true )
+           if getBattleManager():getBattleRoleUnitById(self.roleid) then
+              getBattleManager():getBattleRoleUnitById(self.roleid):removeBuffById(self.id)
+              if self.removeKeepEffect then
+                 self:removeKeepEffect()
+              end
+           end
+        end
+    end
+end
+
+-- 设置当前可以删除
+function BattleBuff:setCanRemove( cr )
+   self.canremove = cr
+end
+
+-- 得到当前可以移除
+function BattleBuff:getCanRemove()
+   return self.canremove
+end
+
+-- 得到原始回合数
+function BattleBuff:getOriginalRound()
+    return self.originalround
+end
+
+-- 得到当前剩余回合数
+function BattleBuff:getCurrentBuffRound()
+     return self.currentroundtime
+end
+
+-- 计算buff的跳数(回合数)
+function BattleBuff:initBuffJumpNumber()
+    -- 首先判断是否有持续时间 没有持续时间则按照跳数和每跳间隔计算
+    local keppnumber = tonumber(self.keeptime)
+    local jumpnumber = tonumber(self.jumpnumber)
+    if keppnumber ~= NE then
+       self.currentroundtime = keppnumber
+       self.originalround    = keppnumber
+    elseif jumpnumber ~= NE then
+       self.currentroundtime = jumpnumber
+       self.originalround    = jumpnumber
+       if self.jumpeverytime ~= NE then
+          self.everyroundeffect = tonumber(self.jumpeverytime)
+       end
+    end
+end
+
+-- 是否会激发特效 有激发特效则添加激发特效
+-- @buffid: 战斗单位的战斗ID
+function BattleBuff:addInspireEffect(buffid)
+     -- 添加特效
+     -- ----print(self.data:getId(), "激发特效ID = ",json.encode(self.hasinspireeffect))
+     if tonumber(self.hasinspireeffect) == YES then
+        local releasedata     = {}
+        releasedata.groupid   = self.data:getInspireEffectId().id
+        local inspireeffect   = RequireModel.GroupEffect.new(releasedata,self.roleid,BATTLEENUM.GroupEffectType.buff)
+        local inspireOnSpine  = inspireeffect:addOnSpine() 
+        self:addChild(inspireeffect,12)
+        inspireeffect:setAllOnce()
+        -- ------printError("ddds")
+         -- ----print(json.encode(releasedata),releasedata.groupid, "inspireeffectinspireeffect = ") 
+        return inspireeffect, inspireOnSpine
+     end
+end
+ 
+
+
+-- 添加持续特效
+function BattleBuff:initKeepEffect() 
+     ----print(self.id, "1持续特效ID = ",json.encode(self.keepeffect))
+    if self.keepeffect then
+       local groupid = tonumber(self.keepeffect)
+       if groupid and groupid ~= 0 then
+          local releasedata    = {}
+          releasedata.groupid  = groupid
+
+          ----print("keee p = ",json.encode(releasedata))
+          self.keffect         = GroupEffect.new(releasedata,self.roleid,BATTLEENUM.GroupEffectType.buff, true)
+          -- self.keffect:setAllOnce()
+          self.isAddOnSpine    = self.keffect:addOnSpine()
+       end
+    end
+end
+
+-- 是否有持续特效
+function BattleBuff:hasKeppEffect()
+     if tonumber(self.keepeffect) and tonumber(self.keepeffect) ~= 0 then
+        return tonumber(self.keepeffect)
+     end
+     return false
+end
+
+-- 添加一次性特效
+function BattleBuff:initOnceEffect() 
+    self.oncebuff = self.data:getPlayOnceEffect()
+    ------------print(self.id,"2持续特效ID = ",json.encode(self.oncebuff))
+    if self.oncebuff then
+       local groupid = tonumber(self.oncebuff)
+       if groupid ~= 0 then
+          local releasedata    = {}
+          releasedata.groupid  = groupid
+          releasedata.isonce   = true
+          self.onceeffect         = GroupEffect.new(releasedata,self.roleid,BATTLEENUM.GroupEffectType.buff)
+          self.onceeffect:setAllOnce()
+          self.isAddOnceOnSpine       = self.onceeffect:addOnSpine()
+       end
+    end
+end
+
+-- 生效／命中特效
+function BattleBuff:initEfiEffect()
+    self.effectbuff = self.data:getPlayEfiEffect()
+    ------------print(self.streid,self.id, " 12持续特效ID = ", self.effectbuff)
+    if self.effectbuff then
+       local groupid = tonumber(self.effectbuff)
+       if groupid ~= 0 then
+          local releasedata       = {}
+          releasedata.groupid     = groupid
+          releasedata.isonce      = true
+          if self.streid and self.streid ~= 0 then
+             -- 是否有buff的其它特效触发 在事件的时候处理这组数据
+             releasedata.hasbuffste = {}
+             releasedata.hasbuffste.roleid     = self.roleid
+             releasedata.hasbuffste.buffid     = self.id
+          end
+
+          self.efieffect        = GroupEffect.new(releasedata,self.roleid,BATTLEENUM.GroupEffectType.buff)
+          self.efieffect:setAllOnce()
+          self.isAddOnEfiSpine  = self.efieffect:addOnSpine()
+       end
+    end
+end
+
+-- 处理特效事件
+function BattleBuff:dealStrEffect()
+    if self.streid and self.streid ~= 0 then
+       local releasedata       = {}
+       ----------------print("self.streid = ",self.streid)
+       releasedata.groupid     = self.streid
+       releasedata.isonce      = true
+       self.streffect          = GroupEffect.new(releasedata,self.roleid,BATTLEENUM.GroupEffectType.buff)
+       self.isStrEfiSpine      = self.streffect:addOnSpine()
+    end
+end
+
+-- 处理命中的特效
+function BattleBuff:dealBee()
+    if self.bee and tonumber(self.bee) ~= 0 then
+       local releasedata       = {}
+       ----------------print("self.streid = ",self.bee)
+       releasedata.groupid     = self.bee
+       releasedata.isonce      = true
+       self.beeEffect          = GroupEffect.new(releasedata,self.roleid,BATTLEENUM.GroupEffectType.buff)
+       self.isBeeEfiSpine      = self.beeEffect:addOnSpine()
+       --------------print("命中特效 = ",self.isBeeEfiSpine)
+    end
+end
+
+function BattleBuff:getBeeEffect()
+   return self.beeEffect
+end
+
+function BattleBuff:getIsBeeEfiSpine()
+   return self.isBeeEfiSpine
+end
+
+
+function BattleBuff:getStrEffect()
+    return self.streffect
+end
+
+function BattleBuff:strIsAddOnSpine()
+    return self.isStrEfiSpine
+end
+
+
+function BattleBuff:getEfiEffect()
+    return self.efieffect
+end
+
+-- 得到一次性特效
+function BattleBuff:getOnceEffect()
+    return self.onceeffect
+end
+
+
+-- 得到持续特效
+function BattleBuff:getKeepEffect()
+    return self.keffect
+end
+
+
+function BattleBuff:addKeepEffect()
+    if self.keffect then
+       self:addChild(self.keffect,10)
+    end
+end
+
+-- 添加特效组合的数据
+function BattleBuff:addBuffEffect()
+    -- body
+end
+-- 得到是否是添加到人物的身上
+function BattleBuff:addOnSpine()
+    return self.isAddOnSpine
+end
+
+function BattleBuff:getAddOnceSpine()
+    return self.isAddOnceOnSpine
+end
+
+function BattleBuff:getAddEfiSpine()
+    return self.isAddOnEfiSpine
+end
+
+-- 移除持续特效
+function BattleBuff:removeKeepEffect()
+     if self.keffect then
+        self.keffect:removeAllEffect()
+        -- self.keffect:removeSelf()
+     end   
+end
+
+
+
+-- 移除激发特效
+function BattleBuff:removeInspireEffect()
+     if self.inspireeffect then
+        self.inspireeffect:removeSelf()
+     end
+end
+ 
+
+return BattleBuff
+
+——————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
+
+
+C++
+
+
+#include "RecvmessageManage.hpp"
+#include "cocos2d.h"
+#include "CCLuaEngine.h"
+#if(CC_TARGET_PLATFORM == CC_PLATFORM_WIN32)
+#include <pthread/pthrea>
+#elif(CC_TARGET_PLATFORM == CC_PLATFORM_WP8)
+#include <thread>
+#else
+#include "pthread.h"
+#endif
+
+extern "C" {
+#include "lua.h"
+#include "lualib.h"
+#include "lauxlib.h"
+};
+
+#include <stdlib.h>
+#include <iostream>
+
+
+
+//Lua 中相关处理服务器端数据的通用方法
+
+//vector<string> FUNCTIONS;
+//
+//void addFunctions(string functionName){
+//    FUNCTIONS.insert(FUNCTIONS.end(), functionName);
+//}
+
+std::list <CMessage*> xiaoxiduilie;
+
+void callLuaFunctionInGame(char * callFunc, CMessage * message)
+{
+    lua_State*  ls = LuaEngine::getInstance()->getLuaStack()->getLuaState();
+    lua_getglobal(ls, callFunc);
+    tolua_pushusertype(ls, message, "CMessage");
+    lua_pcall(ls,1,0,0);
+}
+
+std::mutex lockreceivedata;
+
+void upDateFunctionInMain()
+{
+    CMessage * tmpdata = NULL;
+    
+    if(xiaoxiduilie.size()>0)
+    {
+        printf("收到消息");
+        lockreceivedata.lock();
+        tmpdata = (CMessage *)(*(xiaoxiduilie.begin()));
+        xiaoxiduilie.pop_front();
+        lockreceivedata.unlock();
+        callLuaFunctionInGame("DealAllSocketData", tmpdata);
+        delete tmpdata;
+    }
+}
+
+//相关网络数据处理方法和类型
+pthread_mutex_t RECEIVE_SOCKETDATA_MUTEX;                         // TCP 读取数据的锁
+pthread_t READ_SOCKETDATA_THREAD_ID;
+pthread_mutex_t READ_SOCKETDATA_MUTEX;                         // TCP 读取数据的锁
+static RecvmessageManage * m_RecvmessageManage=nullptr;
+
+string RecvmessageManage::socketAddress = "192.168.1.13";  // 当前连接的socket地址
+int    RecvmessageManage::socketPort    = 8000;     // 当前连接的socket端口号
+
+CMessage * curMessage;
+
+RecvmessageManage::RecvmessageManage()
+{
+    zuihouyitiaoxiaoxi=new CMessage();
+    zuihouyitiaoxiaoxi->setwriteposweiling();
+}
+
+RecvmessageManage* RecvmessageManage::getInstance()
+{
+    if(nullptr== m_RecvmessageManage){
+        m_RecvmessageManage = new RecvmessageManage();
+    }
+    return m_RecvmessageManage;
+}
+
+RecvmessageManage::~RecvmessageManage()
+{
+    delete zuihouyitiaoxiaoxi;
+}
+
+// 得到消息队里面的罪行数据
+CMessage* RecvmessageManage::getmessage()
+{
+    if(xiaoxiduilie.empty())
+    return nullptr;
+    CMessage* mes=xiaoxiduilie.front();
+    return mes;
+}
+
+//    q.empty()               如果队列为空返回true，否则返回false
+//    q.size()                返回队列中元素的个数
+//    q.pop()                 删除队列首元素但不返回其值
+//    q.front()               返回队首元素的值，但不删除该元素
+//    q.push()                在队尾压入新元素
+//    q.back()                返回队列尾元素的值，但不删除该元素
+// 将完整的消息放在接受的消息队列里面
+void RecvmessageManage::addmessage(const unsigned char* message,int messagelenth)
+{
+    zuihouyitiaoxiaoxi->writemessage(message, messagelenth);
+    checkmessageiswanzheng();
+}
+
+// 调用Lua的数据处理逻辑
+void* RecvmessageManage::callGame(void* a){
+    try{
+        pthread_mutex_lock(&RECEIVE_SOCKETDATA_MUTEX);
+        cocos2d::LuaEngine::getInstance()->getLuaStack()->clean();
+        lua_State * ls = cocos2d::LuaEngine::getInstance()->getLuaStack()->getLuaState();
+        lua_getglobal(ls, "DealAllSocketData");
+        tolua_pushusertype(ls, curMessage, "CMessage");
+        int stacknum = lua_pcall(ls, 1, 0,0);
+        printf("栈的数量 ＝ ",stacknum);
+        pthread_mutex_unlock(&RECEIVE_SOCKETDATA_MUTEX);
+    }catch(std::exception ex){
+        printf("回调失败");
+    }
+    return 0;
+}
+
+
+// 添加新调用的函数
+/*消息头   short
+ 消息长度   short
+ 消息号    int
+ 消息内容
+ */
+
+// 检查消息是否完整
+bool RecvmessageManage::checkmessageiswanzheng()
+{       zuihouyitiaoxiaoxi->getShort();
+        short xiaoxichangdu = zuihouyitiaoxiaoxi->getShort();
+        int msglength = zuihouyitiaoxiaoxi->getmessagelenth();
+        int xiaoxihao = zuihouyitiaoxiaoxi->getInt();
+        printf("消息中记录的长度 = %d\n",xiaoxichangdu);
+        printf("实际的消息长度 = %d\n",msglength);
+        printf("消息号 = %d\n",xiaoxihao);
+        if(xiaoxichangdu==msglength){
+            pthread_mutex_lock(&READ_SOCKETDATA_MUTEX);
+            curMessage = new CMessage();
+            curMessage->copymessage(zuihouyitiaoxiaoxi);
+            xiaoxiduilie.push_back(curMessage);
+            pthread_mutex_unlock(&READ_SOCKETDATA_MUTEX);
+            
+            zuihouyitiaoxiaoxi->qingkongxiaoxineirong();
+            zuihouyitiaoxiaoxi->setwriteposweiling();
+            // callGlobalFunc(CMessage::function.c_str(),mes);
+
+            return true;
+        }
+        else if (xiaoxichangdu > msglength){
+            zuihouyitiaoxiaoxi->resetreadpos();
+            return true;
+        }
+        else {
+         //   pthread_mutex_lock(&READ_SOCKETDATA_MUTEX);
+            xiaoxiduilie.push_back(zuihouyitiaoxiaoxi->getMsgByLength(xiaoxichangdu));
+            checkmessageiswanzheng();
+          //  pthread_mutex_unlock(&READ_SOCKETDATA_MUTEX);
+            return true;
+        }
+    
+}
+
+
+
+React-native
+______________________________________________________________________
+import React ,{Component} from 'react';
+import { View, Text,Alert,Image,NativeModules,TextInput, FlatList,TouchableOpacity,StyleSheet,Dimensions} from 'react-native';
+import {NavigationActions} from 'react-navigation'; // Version can be specified in package.json
+import Ionicons from 'react-native-vector-icons/Ionicons'; // Version can be specified in package.json
+const {height, width} = Dimensions.get('window');
+import Picker from 'react-native-picker';
+import Video from 'react-native-video';
+
+var ImagePicker = require('react-native-image-picker');
+import ImageViewer from 'react-native-image-zoom-viewer';
+ 
+ // 更新公司代理
+class UpdateGongSiDaLi extends Component{
+	  constructor(props){
+		  super(props);
+      const { navigation } = this.props;
+      this.data = navigation.getParam('data', 'NO-ID');
+		  this.state = {
+         dlname:this.data.dlname,
+         phone:this.data.phone,
+         idcard:this.data.idcard,
+         address:this.data.address,
+         sex:this.data.sex,
+         jjphone:this.data.jjphone,
+      }
+    }
+
+    onSexChangeText(text){
+       this.state.sex = text;
+    }
+
+    ondlnameChangeText(text){
+        this.state.dlname = text;
+        this.state.dlname = text;
+    }
+
+    onPhoneChangeText(text){
+        this.state.phone = text;
+    }
+
+    onidcardChangeText(text){
+      this.state.idcard = text;
+    }
+
+
+    onaddressChangeText(text){
+      this.state.address = text;
+    }
+
+
+    onJjPhoneChangeText(text){
+      this.state.jjphone = text;
+    }
+
+    componentWillUnmount() {
+       
+    }
+
+    componentDidMount(){
+         
+    }
+    
+    // 更新当前的代理信息
+    updateItem(){
+       if(this.state.address.length < 2){
+          Alert.alert('地址','地址长度不能小于2',[{text:"确定"}]);
+       }else if(this.state.dlname.length < 2){
+          Alert.alert('姓名','姓名长度不能小于2',[{text:"确定"}]);
+       }else if(this.state.phone.length < 6){
+          Alert.alert('电话','电话长度不能小于6',[{text:"确定"}]);
+       }else if(this.state.idcard.length < 18){
+          Alert.alert('身份证','身份证长度不能小于18',[{text:"确定"}]);
+       }else if(this.state.sex.length < 0){
+          Alert.alert('性别','性别长度不能小于1',[{text:"确定"}]);
+       }else if(this.state.jjphone.length < 6){
+          Alert.alert('紧急电话','紧急电话长度不能小于6',[{text:"确定"}]);
+       }else{
+           let formData = new FormData();
+            formData.append("address",this.state.address);
+            formData.append("dlname",this.state.dlname);
+            formData.append("phone",this.state.phone);
+            formData.append("idcard",this.state.idcard);
+            formData.append("sex",this.state.sex);
+            formData.append("jjphone",this.state.jjphone);
+            formData.append("compid",usermsg.phone);
+            formData.append("id",this.data.id);
+            fetch("http://172.20.10.4:8080/farmerserver/updateqd.fm",{method: "POST",body:formData})
+                    .then(res => res.json())
+                    .then(
+                      (result) => {
+                        if(result.suc === true){
+                          gongsiqudao.flushNet();
+                          this.props.navigation.goBack()
+                        }else{
+                          alert(result.data)
+                        }
+                      },
+                      (error) => {
+                        alert(result.data)
+                        this.setState({
+                          isLoaded: true,
+                          error
+                        });
+                      }
+                    )
+             }
+
+    }
+
+    render(){
+    	 return(  
+           <View style={styles.container}>
+	           <FlatList
+	                  style={{flex:1,width:width,padding:5}}
+	                  data={[]}
+	                  ItemSeparatorComponent={this.space}
+	                  renderItem={({item}) =>
+	                     <View style={styles.row}>
+	                           
+	                     </View>
+	                   }
+	                  ListEmptyComponent={ () => 
+	                     <View style={{flex:1,marginBottom:50}}>
+	                             <View style={{width:width-10,marginTop:5,borderRadius:5,padding:10, flexDirection:'column',backgroundColor:'white'}}>
+				                       <Text style={{paddingLeft:3,color:'red',marginTop:20}}>渠道地点</Text>
+                               <TextInput onChangeText={(text) => this.onaddressChangeText(text)}  placeholder="请输入渠道地点(如:北京西城区)" maxLength={123}  placeholderTextColor="grey" style={{fontSize:15,paddingLeft:5,width:width-80,borderRadius:10,height:40,borderWidth:1,borderColor:"lightgrey",marginTop:5}}>{this.data.address}</TextInput>
+                               <Text style={{paddingLeft:3,color:'red',marginTop:20}}>渠道姓名</Text>
+                               <TextInput onChangeText={(text) => this.ondlnameChangeText(text)} placeholder="请输入渠道姓名(如:张三)" maxLength={24}   placeholderTextColor="grey" style={{fontSize:15,paddingLeft:5,width:width-80,borderRadius:10,height:40,borderWidth:1,borderColor:"lightgrey",marginTop:5}}>{this.data.dlname}</TextInput>
+				                       <Text style={{paddingLeft:3,color:'red',marginTop:20}}>渠道手机号</Text>
+                               <TextInput onChangeText={(text) => this.onPhoneChangeText(text)} maxLength={14} keyboardType="phone-pad" placeholder="请输入渠道手机号" placeholderTextColor="grey" style={{fontSize:15,paddingLeft:5,width:width-80,borderRadius:10,height:40,borderWidth:1,borderColor:"lightgrey",marginTop:5}}>{this.data.phone}</TextInput>
+				                       <Text style={{paddingLeft:3,color:'red',marginTop:20}}>渠道身份证号</Text>
+                               <TextInput onChangeText={(text) => this.onidcardChangeText(text)}  maxLength={18}  keyboardType="phone-pad" placeholder="请输入渠道身份证号" placeholderTextColor="grey" style={{fontSize:15,paddingLeft:5,width:width-80,borderRadius:10,height:40,borderWidth:1,borderColor:"lightgrey",marginTop:5}}>{this.data.idcard}</TextInput>
+				                       <Text style={{paddingLeft:3,color:'red',marginTop:20}}>性别</Text>
+                               <TextInput onChangeText={(text) => this.onSexChangeText(text)} style={{marginTop:6,width:width-30,height:40,padding:8,borderWidth:1,fontSize:16,color:'black',borderRadius:5,borderColor:"lightgrey"}} maxLength={12}  placeholderTextColor="grey" placeholder="请输入合作伙伴性别" >{this.data.sex}</TextInput> 
+                               <Text style={{paddingLeft:3,color:'red',marginTop:20}}>紧急联系电话</Text>
+				                       <TextInput onChangeText={(text) => this.onJjPhoneChangeText(text)}  maxLength={14} keyboardType="phone-pad" style={{marginTop:6,width:width-30,height:40,padding:8,borderWidth:1,fontSize:16,color:'black',borderRadius:5,borderColor:"lightgrey"}} placeholderTextColor="grey" placeholder="请输入紧急联系电话" >{this.data.jjphone}</TextInput> 
+				                 </View>
+
+				         </View>
+	                 }
+	            />
+	            <TouchableOpacity style={{borderRadius:0,justifyContent:'center',width:width,height:40,backgroundColor:"green",marginBottom:0,alignItems:'center'}} onPress={this.updateItem.bind(this)}>
+                  <Text style={{color:'white',fontSize:16,}}>确定更新</Text>
+              </TouchableOpacity>
+                
+          </View>    
+        )
+     }
+
+     static navigationOptions = {
+         title:'更新渠道',
+         headerTitleStyle:{
+           flex:1,
+           textAlign:'center',
+  		 },
+  		 headerRight: <View />
+    }
+}
+
+
+const styles = StyleSheet.create({
+    container:{
+    	flex:1,
+    	alignItems:'center',
+    	flexDirection:"column",
+    	backgroundColor:'white',
+    }
+
+});
+ 
+export default UpdateGongSiDaLi
+_______________________________________________________________________________________________________________________
+
+
+
+
